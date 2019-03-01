@@ -1,12 +1,16 @@
 #include "mgos.h"
 #include "mgos_aws_shadow.h"
 #include "mgos_mqtt.h"
+#include "mgos_timers.h"
+#include "mgos_arduino_pololu_VL53L0X.h"
 
 #define JSON_BUTTON_LED "{buttonPressed: %B, ledOn: %B}"
 
 static mgos_timer_id press_timer = MGOS_INVALID_TIMER_ID;
 bool button_pressed = false;
 bool led_on = false;
+VL53L0X* vl53 = mgos_VL53L0X_create();
+
 
 static void set_status_led(bool turn_on)
 {
@@ -123,9 +127,34 @@ static void button_cb(int pin, void *arg)
   (void)arg;
 }
 
+// static void my_blah_timer_cb(void *arg) {  
+//   LOG(LL_INFO, ("uptime: %.2lf", mgos_uptime());
+//   (void) arg;
+// }
+
+static void my_blah_timer_cb(void *arg)
+{
+  int reading = mgos_VL53L0X_readRangeSingleMillimeters(vl53);
+  LOG(LL_INFO, ("VL52L0X reading read: %d", reading));
+  (void) arg;
+}
+
 enum mgos_app_init_result mgos_app_init(void)
 {
   LOG(LL_INFO, ("setup started."));
+
+
+  // Initialize Pololu VL53L0X library
+  
+  mgos_VL53L0X_begin(vl53);
+  mgos_VL53L0X_init_2v8(vl53);
+  mgos_VL53L0X_setMeasurementTimingBudget(vl53, 20000);
+  // int reading = mgos_VL53L0X_readRangeSingleMillimeters(vl53);
+
+  mgos_set_timer(1000, MGOS_TIMER_REPEAT, my_blah_timer_cb, NULL);
+
+  LOG(LL_INFO, ("VL52L0X setup complete."));
+
 
   /* Register AWS shadow callback handler	*/
   mgos_aws_shadow_set_state_handler(aws_shadow_state_handler, NULL);

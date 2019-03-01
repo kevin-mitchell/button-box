@@ -26,6 +26,9 @@ config_schema:
   - ["wifi.ap.enable", true]
   - ["wifi.ap.ssid", "BB Test"]
   - ["wifi.ap.pass", ""]
+  - ["i2c.enable", true]
+  - ["i2c.sda_gpio", 21]
+  - ["i2c.scl_gpio", 22]
 
   # - ["i2c.enable", "b", false, { title: "Enable I2C" }]
   # - ["i2c.freq", "i", 100000, { title: "Clock frequency" }]
@@ -66,6 +69,7 @@ libs:
   - origin: https://github.com/mongoose-os-libs/aws
   - origin: https://github.com/mongoose-os-libs/shadow
   - origin: https://github.com/mongoose-os-libs/mqtt
+  - origin: https://github.com/mongoose-os-libs/arduino-pololu-vl53l0x
 
 # Used by the mos tool to catch mos binaries incompatible with this file format
 manifest_version: 2017-09-29
