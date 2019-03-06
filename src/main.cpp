@@ -3,14 +3,21 @@
 #include "mgos_mqtt.h"
 #include "mgos_timers.h"
 #include "mgos_arduino_pololu_VL53L0X.h"
+#include "sensorstate.h"
 
-#define JSON_BUTTON_LED "{buttonPressed: %B, ledOn: %B}"
+#define JSON_BUTTON_LED "{distanceCentimeters: %d, active: %B, ledOn: %B}"
 
-static mgos_timer_id press_timer = MGOS_INVALID_TIMER_ID;
+// static mgos_timer_id press_timer = MGOS_INVALID_TIMER_ID;
 bool button_pressed = false;
 bool led_on = false;
-VL53L0X* vl53 = mgos_VL53L0X_create();
+SensorState* sensorState = new SensorState();
+// struct SensorState {
+//   int current_reading = 0;
+//   int previous_distance_reading = 0;
+//   int seconds_in_current_range = 0;
+// } sensorState;
 
+VL53L0X* vl53 = mgos_VL53L0X_create();
 
 static void set_status_led(bool turn_on)
 {
@@ -21,18 +28,7 @@ static void set_status_led(bool turn_on)
 
 void report_state(void)
 {
-  // struct mbuf fb;
-  // struct json_out fout = JSON_OUT_MBUF(&fb);
-  // mbuf_init(&fb, 256);
-
-  // json_printf(&fout, "{welcome:61234321}");
-
-  // mbuf_trim(&fb);
-
-  // LOG(LL_INFO, ("== Reporting state: %s", fb.buf));
-  mgos_aws_shadow_updatef(0, JSON_BUTTON_LED, button_pressed, led_on);
-
-  // mbuf_free(&fb);
+  mgos_aws_shadow_updatef(0, JSON_BUTTON_LED, sensorState->get_latest_distance_cm(), sensorState->is_active(), led_on);
 }
 
 void update_state(void)
@@ -76,11 +72,11 @@ static void aws_shadow_state_handler(void *arg, enum mgos_aws_shadow_event ev,
   LOG(LL_INFO, ("Reported metadata: %.*s\n", (int)reported_md.len, reported_md.p));
   LOG(LL_INFO, ("Desired metadata : %.*s\n", (int)desired_md.len, desired_md.p));
 
-  json_scanf(reported.p, reported.len, JSON_BUTTON_LED, &button_pressed, &led_on);
+  // json_scanf(reported.p, reported.len, JSON_BUTTON_LED, &button_pressed, &led_on);
 
-  json_scanf(desired.p, desired.len, JSON_BUTTON_LED, &button_pressed, &led_on);
+  // json_scanf(desired.p, desired.len, JSON_BUTTON_LED, &led_on);
 
-  update_state();
+  // update_state();
 
   // mgos_mqtt_pub("button", "pressed", 7, 1, false);
 
@@ -91,51 +87,50 @@ static void aws_shadow_state_handler(void *arg, enum mgos_aws_shadow_event ev,
   (void)arg;
 }
 
-static void button_timer_cb(void *arg)
-{
-  int pin = 14;
-  int n = 0; /* Number of times the button is reported down */
-  for (int i = 0; i < 10; i++)
-  {
-    int level = mgos_gpio_read(pin);
-    if (level > 0)
-      n++;
-    mgos_msleep(1);
-  }
+// static void button_timer_cb(void *arg)
+// {
+//   int pin = 14;
+//   int n = 0; /* Number of times the button is reported down */
+//   for (int i = 0; i < 10; i++)
+//   {
+//     int level = mgos_gpio_read(pin);
+//     if (level > 0)
+//       n++;
+//     mgos_msleep(1);
+//   }
 
-  if (n < 9)
-  {
-    button_pressed = false;
-    LOG(LL_INFO, ("button no longer pressed."));
-    report_state();
-    mgos_clear_timer(press_timer);
-  }
+//   if (n < 9)
+//   {
+//     button_pressed = false;
+//     LOG(LL_INFO, ("button no longer pressed."));
+//     report_state();
+//     mgos_clear_timer(press_timer);
+//   }
 
-  (void)arg;
-}
-
-static void button_cb(int pin, void *arg)
-{
-
-  mgos_clear_timer(press_timer);
-  // set_status_led(mgos_gpio_read(led_pin));
-  // LOG(LL_INFO, ("LED pin %d", mgos_sys_config_get_provision_btn_hold_ms()));
-  button_pressed = true;
-  report_state();
-  LOG(LL_INFO, ("button pressed.."));
-  press_timer = mgos_set_timer(100, MGOS_TIMER_REPEAT, button_timer_cb, arg);
-  (void)arg;
-}
-
-// static void my_blah_timer_cb(void *arg) {  
-//   LOG(LL_INFO, ("uptime: %.2lf", mgos_uptime());
-//   (void) arg;
+//   (void)arg;
 // }
 
-static void my_blah_timer_cb(void *arg)
+// static void button_cb(int pin, void *arg)
+// {
+
+//   mgos_clear_timer(press_timer);
+//   // set_status_led(mgos_gpio_read(led_pin));
+//   // LOG(LL_INFO, ("LED pin %d", mgos_sys_config_get_provision_btn_hold_ms()));
+//   button_pressed = true;
+//   report_state();
+//   LOG(LL_INFO, ("button pressed.."));
+//   press_timer = mgos_set_timer(100, MGOS_TIMER_REPEAT, button_timer_cb, arg);
+//   (void)arg;
+// }
+
+static void distance_sensor_reading_cb(void *arg)
 {
   int reading = mgos_VL53L0X_readRangeSingleMillimeters(vl53);
-  LOG(LL_INFO, ("VL52L0X reading read: %d", reading));
+  // LOG(LL_INFO, ("VL52L0X reading read: %d", sensorState.current_reading));
+  // if (has_distance_range_changed(sensorState));
+  if (sensorState->has_sensor_changed(reading)) {
+    report_state();
+  }
   (void) arg;
 }
 
@@ -151,7 +146,7 @@ enum mgos_app_init_result mgos_app_init(void)
   mgos_VL53L0X_setMeasurementTimingBudget(vl53, 20000);
   // int reading = mgos_VL53L0X_readRangeSingleMillimeters(vl53);
 
-  mgos_set_timer(1000, MGOS_TIMER_REPEAT, my_blah_timer_cb, NULL);
+  mgos_set_timer(500, MGOS_TIMER_REPEAT, distance_sensor_reading_cb, NULL);
 
   LOG(LL_INFO, ("VL52L0X setup complete."));
 
@@ -164,12 +159,12 @@ enum mgos_app_init_result mgos_app_init(void)
   mgos_gpio_set_mode(led_pin, MGOS_GPIO_MODE_OUTPUT);
 
   /* setup button */
-  int btn_pin = 14;
+  // int btn_pin = 14;
   // enum mgos_gpio_pull_type btn_pull;
   // enum mgos_gpio_int_mode btn_int_edge;
   LOG(LL_INFO, ("some button info here"));
-  mgos_gpio_set_button_handler(btn_pin, MGOS_GPIO_PULL_DOWN, MGOS_GPIO_INT_EDGE_POS, 20, button_cb,
-                               NULL);
+  // mgos_gpio_set_button_handler(btn_pin, MGOS_GPIO_PULL_DOWN, MGOS_GPIO_INT_EDGE_POS, 20, button_cb,
+  //                              NULL);
 
   return MGOS_APP_INIT_SUCCESS;
 }
