@@ -4,27 +4,14 @@
 #include "mgos_timers.h"
 #include "mgos_arduino_pololu_VL53L0X.h"
 #include "sensorstate.h"
+#include "bb_parser.h"
 
 #define JSON_BUTTON_LED "{distanceCentimeters: %d, active: %B, ledOn: %B}"
 
-// static mgos_timer_id press_timer = MGOS_INVALID_TIMER_ID;
-bool button_pressed = false;
-bool led_on = false;
+device_configuration config;
+int* thing_data = [10];
 SensorState* sensorState = new SensorState();
-// struct SensorState {
-//   int current_reading = 0;
-//   int previous_distance_reading = 0;
-//   int seconds_in_current_range = 0;
-// } sensorState;
-
 VL53L0X* vl53 = mgos_VL53L0X_create();
-
-static void set_status_led(bool turn_on)
-{
-  int led_pin = 25;
-
-  mgos_gpio_write(led_pin, turn_on);
-}
 
 void report_state(void)
 {
@@ -80,48 +67,15 @@ static void aws_shadow_state_handler(void *arg, enum mgos_aws_shadow_event ev,
 
   // mgos_mqtt_pub("button", "pressed", 7, 1, false);
 
+  config = extract_configuration(desired.p);
+  thing_data = extract_thing_data(desired.p);
+
   if (ev == MGOS_AWS_SHADOW_UPDATE_DELTA)
   {
     report_state();
   }
   (void)arg;
 }
-
-// static void button_timer_cb(void *arg)
-// {
-//   int pin = 14;
-//   int n = 0; /* Number of times the button is reported down */
-//   for (int i = 0; i < 10; i++)
-//   {
-//     int level = mgos_gpio_read(pin);
-//     if (level > 0)
-//       n++;
-//     mgos_msleep(1);
-//   }
-
-//   if (n < 9)
-//   {
-//     button_pressed = false;
-//     LOG(LL_INFO, ("button no longer pressed."));
-//     report_state();
-//     mgos_clear_timer(press_timer);
-//   }
-
-//   (void)arg;
-// }
-
-// static void button_cb(int pin, void *arg)
-// {
-
-//   mgos_clear_timer(press_timer);
-//   // set_status_led(mgos_gpio_read(led_pin));
-//   // LOG(LL_INFO, ("LED pin %d", mgos_sys_config_get_provision_btn_hold_ms()));
-//   button_pressed = true;
-//   report_state();
-//   LOG(LL_INFO, ("button pressed.."));
-//   press_timer = mgos_set_timer(100, MGOS_TIMER_REPEAT, button_timer_cb, arg);
-//   (void)arg;
-// }
 
 static void distance_sensor_reading_cb(void *arg)
 {
