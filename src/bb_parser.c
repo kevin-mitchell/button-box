@@ -6,9 +6,11 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define CONFIG_JSON "{distanceCentimeters: %d, active: %B, ledOn: %B}"
-#define ROOT_CONFIG_JSON "{ configuration: %M }"
+#define CONFIG_JSON "{onTime: %d, offTime: %d}"
+#define ROOT_CONFIG_JSON "{ configuration: %M, group: "" }"
+#define ROOT_CONFIG_OUTPUT_JSON "{ configuration: %s, group: %s}"
 #define THING_DATA_JSON "{position: %d, strength: %d}"
+#define POTENTIAL_OUTPUTS 10
 
 typedef struct
 {
@@ -17,73 +19,116 @@ typedef struct
 } device_configuration;
 device_configuration _config;
 
+typedef struct
+{
+   int position;
+   int strength;
+} display_element;
+
 static void scan_configuration(const char *str, int len, void * user_data)
 {
    json_scanf(str, len, CONFIG_JSON, &_config.on_time, &_config.off_time);      
 }
 
-int* extract_thing_data(char* message_input)
+void extract_thing_data(display_element* display_elements_buffer, int display_size, const char* message_input)
 {
-   static int thing_data[10] = {-1,-1,-1,-1,-1,-1,-1,-1,-1,-1};
    int i, len = strlen(message_input), position, strength;
-   //this is the size of the display array;
-   int display_size = sizeof(thing_data)/sizeof(thing_data[0]);
    struct json_token t;
-
+   
+   for(i = 0; i < display_size; i++) {
+      display_elements_buffer[i].strength = -1;
+      display_elements_buffer[i].position = -1;
+   }
+   
    for (i = 0; json_scanf_array_elem(message_input, len, ".group", i, &t) > 0; i++) {
       json_scanf(t.ptr, t.len, THING_DATA_JSON, &position, &strength);
       //If we have a posiiton that's out of bounds of the display array size, then we can't display this value
       //and trying to set it in the array would cause a out of bounds exception
-      if(position > (display_size-1)) {
+      if(position > (display_size - 1)) {
          continue;
       }
-      thing_data[position] = strength;
+      display_elements_buffer[i].strength = strength;
+      display_elements_buffer[i].position = position;
    }
-   
-   return thing_data;
-
 }
 
-device_configuration extract_configuration(char *message_input)
+void extract_configuration(device_configuration* config_buffer, const char* message_input)
 {  
-   device_configuration config;    
    json_scanf(message_input, strlen(message_input), ROOT_CONFIG_JSON,
-      scan_configuration, config);
-   config.on_time = _config.on_time;
-   config.off_time = _config.off_time;
-   return config;
+      scan_configuration, config_buffer);
+   // printf("%s", message_input);
+   config_buffer->on_time = _config.on_time;
+   config_buffer->off_time = _config.off_time;
 }
 
 /**
- * Build up an array of thing data in a single string
+ * Build up an array of Thing data in a single string
  */
-char* build_thing_value_json(int* thing_data) {   
-   int display_size = sizeof(thing_data)/sizeof(thing_data[0]);
+void build_thing_value_json(char* output_buffer, size_t buffer_size, display_element* thing_data, int display_size) {   
    const char *individual_values[display_size];
-   for(int i = 0; i <= display_size; i++) {
-      printf("%d", thing_data[i]);
+   
+   struct json_out out = JSON_OUT_BUF(output_buffer, buffer_size);
+   json_printf(&out, "[");
+   for(int i = 0; i < display_size; i++) {
+      if(thing_data[i].position == -1) {
+         break;
+      }
+      json_printf(&out, THING_DATA_JSON, thing_data[i].position, thing_data[i].strength);
+      if(i+1 < display_size && thing_data[i+1].position != -1) {
+         json_printf(&out, ",");   
+      }
    }
 
-   { \"position\": 1, \"strength\": 3 }
+   json_printf(&out, "]");
 
-   // char buf[200] = "";
-   // struct json_out out = JSON_OUT_BUF(buf, sizeof(buf));
-   // int test_data[3] = {2, 4, 5};
-   // json_printf(&out, "%M", json_printf_array, test_data, sizeof(test_data), sizeof(test_data[0]),
-   //              "%d");
-   // printf("%s\n", buf);
+}
 
-   return "ok";
+void build_configuration_json(char* output_buffer, size_t buffer_size, device_configuration config) {
+ 
+   struct json_out out = JSON_OUT_BUF(output_buffer, buffer_size);
+   json_printf(&out, CONFIG_JSON, config.on_time, config.off_time);
+   
+}
+
+void build_json(char* output_buffer, size_t buffer_size, device_configuration config, display_element* thing_data, int display_size) {
+   struct json_out out = JSON_OUT_BUF(output_buffer, buffer_size);
+   size_t local_buffer_size = 2000;
+   char config_json[local_buffer_size];
+   build_configuration_json(config_json, local_buffer_size, config);
+   char thing_json[local_buffer_size];
+   build_thing_value_json(thing_json, local_buffer_size, thing_data, display_size);
+   json_printf(&out, ROOT_CONFIG_OUTPUT_JSON, config_json, thing_json );
 }
 
 int main() {
-   char *testJson = "{ \"group\": [ { \"position\": 1, \"strength\": 3 }, { \"position\": 2, \"strength\": 7 }, { \"position\": 3, \"strength\": 0 } ], \"configuration\": { \"offTime\":\"9999999\", \"onTime\":\"42424242\" } }";
-   device_configuration config = extract_configuration(testJson);
-   printf("\non_time: %ld\noff_tim: %ld\n", config.on_time, config.off_time);
-   int* thing_data = extract_thing_data(testJson);
    
-   build_thing_value_json(thing_data);
+   const char* testJson = "{ \"group\": [ { \"position\": 1, \"strength\": 3 }, { \"position\": 2, \"strength\": 7 }, { \"position\": 3, \"strength\": 0 } ], \"configuration\": { \"offTime\":9999999, \"onTime\":42424242 } }";
+   device_configuration config;
+   extract_configuration(&config, testJson);
+   printf("\n\nExtracting config...\n");
+   printf("\non_time: %ld\noff_tim: %ld\n", config.on_time, config.off_time);
+   
+   size_t buffer_size = 2000;
+   char output[buffer_size];
+   build_configuration_json(output, buffer_size, config);
+   printf("\nBuilding config JSON...\n%s\n", output);
 
+   
+   int display_size = 10;
+   display_element thing_data[display_size];
+   extract_thing_data(thing_data, display_size, testJson);
+   printf("\n%d", thing_data[0].strength);
+   
+   
+   printf("\n\n\nThing JSON\n\n");
+   
+   build_thing_value_json(output, buffer_size, thing_data, display_size);
+   
+   printf("\n%s", output);
+   
+   printf("\n\nfinal output:\n");
+   build_json(output, buffer_size, config, thing_data, display_size);
+   printf("%s", output);
 }
 
 
