@@ -1,3 +1,5 @@
 *.key.pem
 *.crt.pem
 build/*
+*.gcov
+*.out

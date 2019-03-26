@@ -6,22 +6,52 @@
 #include "sensorstate.h"
 #include "bb_parser.h"
 
-#define JSON_BUTTON_LED "{distanceCentimeters: %d, active: %B, ledOn: %B}"
+//Display for device can hold up to 10 display values
+const int DISPLAY_SIZE = 10;
 
+//The configuration settings for the device
 device_configuration config;
-int* thing_data = [10];
+
+//The maximum size of the JSON we will be generating
+// #define MAXIMUM_JSON_OUTPUT_LENGTH 1500
+//this is where we'll keep the JSON that we generate
+const size_t BUFFER_SIZE = 1500;
+char jsonOutput[BUFFER_SIZE];
+
+//This will contain the state of all of the displays
+display_element displayStates[DISPLAY_SIZE];
+
 SensorState* sensorState = new SensorState();
 VL53L0X* vl53 = mgos_VL53L0X_create();
 
+/** 
+ *
+ * Send the state of the device to update the IoT device shadow. 
+ *
+ */
 void report_state(void)
 {
-  mgos_aws_shadow_updatef(0, JSON_BUTTON_LED, sensorState->get_latest_distance_cm(), sensorState->is_active(), led_on);
+  LOG(LL_INFO, ("report state..."));
+  build_json(
+    jsonOutput, 
+    BUFFER_SIZE, 
+    config, 
+    displayStates, 
+    DISPLAY_SIZE, 
+    sensorState->get_latest_distance_cm(), 
+    sensorState->is_active());
+  LOG(LL_INFO, ("state being sent to AWS %s", jsonOutput));
+  //Note we're using mgos_aws_shadow_update_simple instaed of mgos_aws_shadow_updatef because it's just a string
+  //@see: https://github.com/mongoose-os-libs/aws/blob/master/src/mgos_aws_shadow.c#L510
+  mgos_aws_shadow_update_simple(0, jsonOutput);
 }
 
+/**
+  * Update the state of the local device. This is where I would handle turning on LEDs or (in theory) playing a sound, etc.
+  */
 void update_state(void)
 {
-  LOG(LL_INFO, ("update state... led is %d", led_on));
-  set_status_led(led_on);
+  LOG(LL_INFO, ("update state..."));
 }
 
 /*
@@ -54,21 +84,11 @@ static void aws_shadow_state_handler(void *arg, enum mgos_aws_shadow_event ev,
   {
     return;
   }
-  LOG(LL_INFO, ("Reported state: %.*s\n", (int)reported.len, reported.p));
-  LOG(LL_INFO, ("Desired state : %.*s\n", (int)desired.len, desired.p));
-  LOG(LL_INFO, ("Reported metadata: %.*s\n", (int)reported_md.len, reported_md.p));
-  LOG(LL_INFO, ("Desired metadata : %.*s\n", (int)desired_md.len, desired_md.p));
 
-  // json_scanf(reported.p, reported.len, JSON_BUTTON_LED, &button_pressed, &led_on);
+  extract_configuration(&config, desired.p);
+  extract_thing_data(displayStates, DISPLAY_SIZE, desired.p);
 
-  // json_scanf(desired.p, desired.len, JSON_BUTTON_LED, &led_on);
-
-  // update_state();
-
-  // mgos_mqtt_pub("button", "pressed", 7, 1, false);
-
-  config = extract_configuration(desired.p);
-  thing_data = extract_thing_data(desired.p);
+  update_state();
 
   if (ev == MGOS_AWS_SHADOW_UPDATE_DELTA)
   {
@@ -100,7 +120,10 @@ enum mgos_app_init_result mgos_app_init(void)
   mgos_VL53L0X_setMeasurementTimingBudget(vl53, 20000);
   // int reading = mgos_VL53L0X_readRangeSingleMillimeters(vl53);
 
-  mgos_set_timer(500, MGOS_TIMER_REPEAT, distance_sensor_reading_cb, NULL);
+  //todo: probably should be a constant, or even part of the configuration from the Cloud
+  //This is the time delay between sensor readings
+  int sensorReadingPeriod = 500;
+  mgos_set_timer(sensorReadingPeriod, MGOS_TIMER_REPEAT, distance_sensor_reading_cb, NULL);
 
   LOG(LL_INFO, ("VL52L0X setup complete."));
 
